@@ -47,13 +47,13 @@ custom-tube-builder/
 `config.json` फाइल खोलें और अपनी इच्छा अनुसार वैल्यूज बदलें:
 ```json
 {
-  "app_name": "MeraTube",
-  "app_package_name": "com.meratube.android",
-  "developer_name": "Rahul Sharma",
-  "contact_number": "+91 9876543210",
-  "contact_email": "support@meratube.com",
-  "website_or_social": "https://t.me/mychannel",
-  "plugin_app_name": "MeraTube Core Services"
+  "app_name": "AnkitTube",
+  "app_package_name": "com.ankitchaudhary.ankittube",
+  "developer_name": "ankitchaudhary",
+  "contact_number": "8533955333, 89006518960",
+  "contact_email": "ankitchaudhary564@gmail.com",
+  "website_or_social": "https://t.me/ankittube",
+  "plugin_app_name": "AnkitTube Core Services"
 }
 ```
 

@@ -47,8 +47,14 @@ if __name__ == "__main__":
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     assets_dir = os.path.join(base_dir, "assets")
     
-    # App Icon: Vibrant Crimson / Deep Red Gradient Style
-    create_rounded_icon(os.path.join(assets_dir, "app_icon.png"), (220, 20, 60), symbol_type="play")
-    
-    # Plugin Icon: Sleek Tech Blue / Indigo
-    create_rounded_icon(os.path.join(assets_dir, "plugin_icon.png"), (30, 144, 255), symbol_type="plugin")
+    app_icon_path = os.path.join(assets_dir, "app_icon.png")
+    if not os.path.exists(app_icon_path):
+        create_rounded_icon(app_icon_path, (220, 20, 60), symbol_type="play")
+    else:
+        print(f"Preserving existing custom branding icon: {app_icon_path}")
+        
+    plugin_icon_path = os.path.join(assets_dir, "plugin_icon.png")
+    if not os.path.exists(plugin_icon_path):
+        create_rounded_icon(plugin_icon_path, (30, 144, 255), symbol_type="plugin")
+    else:
+        print(f"Preserving existing custom plugin icon: {plugin_icon_path}")
