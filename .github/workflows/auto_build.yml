@@ -1,0 +1,139 @@
+name: Automated Branded App & Plugin Builder
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * 0'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install Pillow requests beautifulsoup4
+
+      - name: Install Apktool & Android Build Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y apktool zipalign apksigner
+
+      - name: Read Configuration
+        id: config
+        run: |
+          python -c "
+          import json, os
+          with open('config.json') as f:
+              cfg = json.load(f)
+          with open(os.environ['GITHUB_ENV'], 'a') as env_file:
+              env_file.write(f'APP_NAME={cfg.get(\"app_name\", \"AnkitTube\")}\n')
+              env_file.write(f'APP_PKG={cfg.get(\"app_package_name\", \"com.ankitchaudhary.ankittube\")}\n')
+              env_file.write(f'PLUGIN_NAME={cfg.get(\"plugin_app_name\", \"AnkitTube Core Services\")}\n')
+              env_file.write(f'DEV_NAME={cfg.get(\"developer_name\", \"ankitchaudhary\")}\n')
+              env_file.write(f'CONTACT_NO={cfg.get(\"contact_number\", \"8533955333, 89006518960\")}\n')
+          "
+
+      - name: Generate Developer Keystore
+        run: |
+          python scripts/generate_keystore.py
+
+      - name: Prepare Assets
+        run: |
+          python scripts/generate_sample_assets.py
+
+      - name: Download Latest ReVanced Components & GmsCore
+        id: download_tools
+        run: |
+          mkdir -p build_cache output
+          CLI_URL=$(curl -s https://api.github.com/repos/ReVanced/revanced-cli/releases/latest | grep "browser_download_url.*\.jar\"" | cut -d : -f 2,3 | tr -d \" | head -n 1)
+          echo "Downloading CLI: $CLI_URL"
+          curl -sL -o build_cache/revanced-cli.jar $CLI_URL
+
+          PATCHES_URL=$(curl -s https://api.github.com/repos/MorpheApp/morphe-patches/releases/latest | grep "browser_download_url.*\.mpp\"" | cut -d : -f 2,3 | tr -d \" | head -n 1)
+          if [ -z "$PATCHES_URL" ]; then
+            PATCHES_URL=$(curl -s https://api.github.com/repos/MorpheApp/morphe-patches/releases/latest | grep "browser_download_url.*\.jar\"" | cut -d : -f 2,3 | tr -d \" | head -n 1)
+          fi
+          echo "Downloading Patches: $PATCHES_URL"
+          curl -sL -o build_cache/revanced-patches.jar $PATCHES_URL
+
+          GMS_URL=$(curl -s https://api.github.com/repos/ReVanced/GmsCore/releases/latest | grep "browser_download_url.*\.apk\"" | cut -d : -f 2,3 | tr -d \" | grep -v "arm64" | head -n 1)
+          if [ -z "$GMS_URL" ]; then
+            GMS_URL=$(curl -s https://api.github.com/repos/ReVanced/GmsCore/releases/latest | grep "browser_download_url.*\.apk\"" | cut -d : -f 2,3 | tr -d \" | head -n 1)
+          fi
+          echo "Downloading GmsCore: $GMS_URL"
+          curl -sL -o build_cache/GmsCore.apk $GMS_URL
+
+      - name: Purge External Branding
+        run: |
+          python scripts/purge_revanced.py build_cache/revanced-patches.jar build_cache/revanced-patches-purged.jar config.json
+
+      - name: Rebrand Plugin APK
+        run: |
+          python scripts/rebrand_microg.py build_cache/GmsCore.apk "output/AnkitTube-Core-Plugin.apk" config.json
+
+      - name: Sign Plugin APK
+        run: |
+          if [ -f "output/AnkitTube-Core-Plugin.apk" ]; then
+            apksigner sign --ks keystore/release.keystore --ks-pass pass:customtube123 --ks-key-alias release_key --key-pass pass:customtube123 "output/AnkitTube-Core-Plugin.apk" || true
+          fi
+
+      - name: Fetch Compatible YouTube Base APK
+        run: |
+          curl -sL -o youtube.apk "https://github.com/FiorenMas/Revanced-And-Revanced-Extended-Non-Root/releases/download/all/youtube-stable-arm64-v8a-anddea.apk" || true
+
+      - name: Build Branded AnkitTube App
+        if: hashFiles('youtube.apk') != ''
+        run: |
+          java -jar build_cache/revanced-cli.jar patch \
+            --patches build_cache/revanced-patches-purged.jar \
+            --out "output/AnkitTube-Official.apk" \
+            --keystore keystore/release.keystore \
+            --keystore-password customtube123 \
+            --keystore-entry-alias release_key \
+            --keystore-entry-password customtube123 \
+            --patch custom-branding \
+            -o "app-name=${{ env.APP_NAME }}" \
+            -o "icon-path=assets/app_icon.png" \
+            --patch custom-package-name \
+            -o "package-name=${{ env.APP_PKG }}" \
+            youtube.apk
+
+      - name: Upload Output Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: AnkitTube-APKs
+          path: output/*.apk
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/heads/main')
+        with:
+          tag_name: release-${{ github.run_number }}
+          name: "AnkitTube Official Media Edition"
+          body: |
+            ### 🚀 AnkitTube Official Release
+            **Developer:** ${{ env.DEV_NAME }}
+            **Support:** ${{ env.CONTACT_NO }}
+            
+            #### 📱 कैसे इनस्टॉल करें:
+            1. पहले `AnkitTube-Core-Plugin.apk` इंस्टॉल करें।
+            2. फिर `AnkitTube-Official.apk` इंस्टॉल करें और पूरा आनंद लें!
+          files: output/*.apk
