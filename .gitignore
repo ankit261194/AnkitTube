@@ -1,0 +1,17 @@
+# Cache and temporary build files
+build_cache/
+_temp_*
+output/*.apk
+*.apk
+youtube.apk
+
+# Keystore (if keeping private locally, though auto-generated in workflow)
+# keystore/*.keystore
+
+# Python cache
+__pycache__/
+*.pyc
+
+# OS files
+.DS_Store
+Thumbs.db

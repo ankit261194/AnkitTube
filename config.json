@@ -1,0 +1,13 @@
+{
+  "app_name": "AnkitTube",
+  "app_package_name": "com.ankitchaudhary.ankittube",
+  "developer_name": "ankitchaudhary",
+  "contact_number": "8533955333, 89006518960",
+  "contact_email": "ankitchaudhary@ankittube.app",
+  "website_or_social": "https://t.me/ankittube",
+  "plugin_app_name": "AnkitTube Core Services",
+  "plugin_package_name": "com.ankitchaudhary.ankittube.gms",
+  "about_description": "AnkitTube - Developed by ankitchaudhary. Support: 8533955333, 89006518960",
+  "version_display": "v1.0.0",
+  "splash_image_path": "assets/splash_screen.png"
+}

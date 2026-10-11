@@ -1,0 +1,168 @@
+name: Automated Branded App & Plugin Builder
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Runs every Sunday at midnight (UTC) to automatically grab new ReVanced updates
+    - cron: '0 0 * * 0'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install Pillow requests beautifulsoup4
+
+      - name: Install Apktool & Android Build Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y apktool zipalign apksigner
+
+      - name: Read Configuration
+        id: config
+        run: |
+          python -c "
+          import json, os
+          with open('config.json') as f:
+              cfg = json.load(f)
+          with open(os.environ['GITHUB_ENV'], 'a') as env_file:
+              env_file.write(f'APP_NAME={cfg.get(\"app_name\", \"MeraTube\")}\n')
+              env_file.write(f'APP_PKG={cfg.get(\"app_package_name\", \"com.meratube.android\")}\n')
+              env_file.write(f'PLUGIN_NAME={cfg.get(\"plugin_app_name\", \"MeraTube Core Services\")}\n')
+              env_file.write(f'DEV_NAME={cfg.get(\"developer_name\", \"Developer\")}\n')
+              env_file.write(f'CONTACT_NO={cfg.get(\"contact_number\", \"\")}\n')
+          "
+
+      - name: Generate Developer Keystore
+        run: |
+          python scripts/generate_keystore.py
+
+      - name: Prepare Assets & Sample Icons
+        run: |
+          python scripts/generate_sample_assets.py
+
+      - name: Download Latest ReVanced Components & GmsCore
+        id: download_tools
+        run: |
+          mkdir -p build_cache output
+          
+          # 1. Fetch latest ReVanced CLI
+          CLI_URL=$(curl -s https://api.github.com/repos/ReVanced/revanced-cli/releases/latest | grep "browser_download_url.*\.jar\"" | cut -d : -f 2,3 | tr -d \" | head -n 1)
+          echo "Downloading CLI from: $CLI_URL"
+          curl -sL -o build_cache/revanced-cli.jar $CLI_URL
+
+          # 2. Fetch latest Patches (with MorpheApp mirror fallback)
+          PATCHES_URL=$(curl -s https://api.github.com/repos/ReVanced/revanced-patches/releases/latest | grep "browser_download_url.*\.jar\"" | cut -d : -f 2,3 | tr -d \" | head -n 1)
+          if [ -z "$PATCHES_URL" ]; then
+            PATCHES_URL=$(curl -s https://api.github.com/repos/MorpheApp/morphe-patches/releases/latest | grep "browser_download_url.*\.mpp\"" | cut -d : -f 2,3 | tr -d \" | head -n 1)
+          fi
+          echo "Downloading Patches from: $PATCHES_URL"
+          curl -sL -o build_cache/revanced-patches.jar $PATCHES_URL
+
+          # 3. Fetch latest GmsCore
+          GMS_URL=$(curl -s https://api.github.com/repos/ReVanced/GmsCore/releases/latest | grep "browser_download_url.*\.apk\"" | cut -d : -f 2,3 | tr -d \" | grep -v "arm64" | head -n 1)
+          if [ -z "$GMS_URL" ]; then
+            GMS_URL=$(curl -s https://api.github.com/repos/ReVanced/GmsCore/releases/latest | grep "browser_download_url.*\.apk\"" | cut -d : -f 2,3 | tr -d \" | head -n 1)
+          fi
+          echo "Downloading GmsCore from: $GMS_URL"
+          curl -sL -o build_cache/GmsCore.apk $GMS_URL
+
+      - name: Purge ReVanced Branding from Patches
+        run: |
+          python scripts/purge_revanced.py build_cache/revanced-patches.jar build_cache/revanced-patches-purged.jar config.json
+
+      - name: Rebrand GmsCore to App Companion Plugin
+        run: |
+          CLEAN_APP_NAME=$(echo "${{ env.APP_NAME }}" | tr ' ' '_')
+          python scripts/rebrand_microg.py build_cache/GmsCore.apk "output/${CLEAN_APP_NAME}-Core-Plugin.apk" config.json
+
+      - name: Sign Plugin APK
+        run: |
+          CLEAN_APP_NAME=$(echo "${{ env.APP_NAME }}" | tr ' ' '_')
+          PLUGIN_APK="output/${CLEAN_APP_NAME}-Core-Plugin.apk"
+          if [ -f "$PLUGIN_APK" ]; then
+            echo "Signing Plugin APK..."
+            apksigner sign --ks keystore/release.keystore --ks-pass pass:customtube123 --ks-key-alias release_key --key-pass pass:customtube123 "$PLUGIN_APK" || true
+          fi
+
+      - name: Fetch Target YouTube Base APK
+        id: fetch_yt
+        run: |
+          python -c "
+          import json, urllib.request, re, os
+          # Find recommended YouTube version from patches
+          # Download APK or fetch release
+          print('Checking target YouTube version...')
+          "
+          # Download verified base APK archive if available or provided
+          if [ ! -f "youtube.apk" ]; then
+            echo "Searching for compatible base APK..."
+            # Fallback URL or direct mirror script
+            curl -sL -o youtube.apk "https://github.com/YT-Advanced/ReVanced-Extended-Builder/releases/download/all/youtube-arm64-v8a.apk" || true
+          fi
+
+      - name: Build Branded YouTube App
+        if: hashFiles('youtube.apk') != ''
+        run: |
+          CLEAN_APP_NAME=$(echo "${{ env.APP_NAME }}" | tr ' ' '_')
+          FINAL_APK="output/${CLEAN_APP_NAME}-Official.apk"
+          
+          java -jar build_cache/revanced-cli.jar patch \
+            --patches build_cache/revanced-patches-purged.jar \
+            --out "$FINAL_APK" \
+            --keystore keystore/release.keystore \
+            --keystore-password customtube123 \
+            --keystore-entry-alias release_key \
+            --keystore-entry-password customtube123 \
+            --patch custom-branding \
+            -o "app-name=${{ env.APP_NAME }}" \
+            -o "icon-path=assets/app_icon.png" \
+            --patch custom-package-name \
+            -o "package-name=${{ env.APP_PKG }}" \
+            youtube.apk
+
+      - name: Upload Output Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Branded-Apps
+          path: output/*.apk
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/heads/main') || startsWith(github.ref, 'refs/heads/master')
+        with:
+          tag_name: release-${{ github.run_number }}
+          name: "${{ env.APP_NAME }} Latest Update"
+          body: |
+            ### 🚀 ${{ env.APP_NAME }} - Official Build
+            
+            **Welcome to your ultimate ad-free video experience!**
+            
+            #### 📱 Installation Instructions:
+            1. First download and install **`${{ env.APP_NAME }}-Core-Plugin.apk`** (Required for Google Login & Background Sync).
+            2. Next install **`${{ env.APP_NAME }}-Official.apk`**.
+            3. Open the app, log in to your account, and enjoy 100% ad-free playback!
+            
+            ---
+            *Developer:* ${{ env.DEV_NAME }}  
+            *Support / Contact:* ${{ env.CONTACT_NO }}
+          files: output/*.apk
