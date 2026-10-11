@@ -1,6 +1,8 @@
 name: Automated Branded App & Plugin Builder
 
 on:
+  push:
+    branches: [ main ]
   workflow_dispatch:
   schedule:
     - cron: '0 0 * * 0'
@@ -103,17 +105,13 @@ jobs:
         if: hashFiles('youtube.apk') != ''
         run: |
           java -jar build_cache/revanced-cli.jar patch \
-            --patches build_cache/revanced-patches-purged.jar \
-            --out "output/AnkitTube-Official.apk" \
+            -p build_cache/revanced-patches-purged.jar -b \
+            -o "output/AnkitTube-Official.apk" \
             --keystore keystore/release.keystore \
             --keystore-password customtube123 \
             --keystore-entry-alias release_key \
             --keystore-entry-password customtube123 \
-            --patch custom-branding \
-            -o "app-name=${{ env.APP_NAME }}" \
-            -o "icon-path=assets/app_icon.png" \
-            --patch custom-package-name \
-            -o "package-name=${{ env.APP_PKG }}" \
+            -f \
             youtube.apk
 
       - name: Upload Output Artifacts
